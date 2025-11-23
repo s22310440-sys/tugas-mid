@@ -1,0 +1,7 @@
+/* Reset dan styling dasar */
+body {
+  margin: 0;
+  padding: 0;
+  background: #f3f5ff;
+  font-family: 'Segoe UI', sans-serif;
+}
