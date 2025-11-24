@@ -1,19 +1,57 @@
 import React, { useState, useEffect } from "react";
 import ELibraryUNKLAB from "./components/ELibraryUNKLAB";
-import { getBooks, getLoans } from "./api/config";
+import BookReturn from "./components/BookReturn";
+import Login from "./components/Login";
+import { getBooks } from "./api/config";
+
+const LOAN_STORAGE_KEY = "riwayat_pinjaman";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("borrow");
   const [loanHistory, setLoanHistory] = useState([]);
   const [stats, setStats] = useState({ totalBooks: 0, totalLoans: 0 });
   const [loading, setLoading] = useState(false);
+  const [returnTicket, setReturnTicket] = useState(null);
+  const [user, setUser] = useState(() => {
+    const savedUser = localStorage.getItem("elib-user");
+    return savedUser ? JSON.parse(savedUser) : null;
+  });
+
+  const loadUserLoans = (email) => {
+    const stored = JSON.parse(localStorage.getItem(LOAN_STORAGE_KEY) || "[]");
+    const userLoans = stored.filter((loan) => loan.userEmail === email);
+    setLoanHistory(userLoans);
+    setStats((prev) => ({
+      ...prev,
+      totalLoans: userLoans.length,
+    }));
+  };
+
+  const saveLoanRecord = (record) => {
+    const stored = JSON.parse(localStorage.getItem(LOAN_STORAGE_KEY) || "[]");
+    const enhancedRecord = {
+      id: Date.now(),
+      ...record,
+    };
+    localStorage.setItem(
+      LOAN_STORAGE_KEY,
+      JSON.stringify([...stored, enhancedRecord])
+    );
+    loadUserLoans(record.userEmail);
+    return enhancedRecord;
+  };
 
   // Load statistics saat aplikasi pertama kali dibuka
   useEffect(() => {
+    if (!user) {
+      setLoanHistory([]);
+      setStats({ totalBooks: 0, totalLoans: 0 });
+      return;
+    }
+
     const loadStats = async () => {
       setLoading(true);
       const booksResult = await getBooks();
-      const loansResult = await getLoans();
 
       if (booksResult.success) {
         setStats((prev) => ({
@@ -22,18 +60,51 @@ export default function App() {
         }));
       }
 
-      if (loansResult.success) {
-        setLoanHistory(loansResult.data);
-        setStats((prev) => ({
-          ...prev,
-          totalLoans: loansResult.data.length,
-        }));
-      }
       setLoading(false);
     };
 
     loadStats();
-  }, []);
+    loadUserLoans(user.email);
+  }, [user]);
+
+  const handleLogin = (userInfo) => {
+    setUser(userInfo);
+    localStorage.setItem("elib-user", JSON.stringify(userInfo));
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    localStorage.removeItem("elib-user");
+    setActiveTab("borrow");
+    setReturnTicket(null);
+  };
+
+  const handleBorrowComplete = (ticket) => {
+    if (!user) return;
+
+    const borrowerName = ticket.borrowerName || user.name || "Pengguna";
+    const recordPayload = {
+      borrowerName,
+      userEmail: user.email,
+      bookTitle: ticket.bookTitle,
+      borrowDate: ticket.borrowDate,
+      plannedReturnDate: ticket.plannedReturnDate,
+      notes: ticket.notes || "-",
+    };
+
+    const savedRecord = saveLoanRecord(recordPayload);
+
+    setReturnTicket({
+      ...ticket,
+      borrowerName: savedRecord.borrowerName,
+      userEmail: savedRecord.userEmail,
+    });
+    setActiveTab("return");
+  };
+
+  if (!user) {
+    return <Login onLogin={handleLogin} />;
+  }
 
   return (
     <div className="app">
@@ -47,15 +118,24 @@ export default function App() {
               <p>Sistem Manajemen Perpustakaan Digital</p>
             </div>
           </div>
-          <div className="header-stats">
-            <div className="stat-item">
-              <span className="stat-number">{stats.totalBooks}</span>
-              <span className="stat-label">Buku</span>
+          <div className="header-actions">
+            <div className="header-stats">
+              <div className="stat-item">
+                <span className="stat-number">{stats.totalBooks}</span>
+                <span className="stat-label">Buku</span>
+              </div>
+              <div className="stat-item">
+                <span className="stat-number">{stats.totalLoans}</span>
+                <span className="stat-label">Peminjaman</span>
+              </div>
+              <div className="stat-item user-pill">
+                <span className="stat-number">{user.name || "Pengguna"}</span>
+                <span className="stat-label">{user.email}</span>
+              </div>
             </div>
-            <div className="stat-item">
-              <span className="stat-number">{stats.totalLoans}</span>
-              <span className="stat-label">Peminjaman</span>
-            </div>
+            <button className="btn btn-secondary logout-btn" onClick={handleLogout}>
+              Keluar
+            </button>
           </div>
         </div>
       </header>
@@ -68,6 +148,12 @@ export default function App() {
             onClick={() => setActiveTab("borrow")}
           >
             <span>📖</span> Peminjaman Buku
+          </button>
+          <button
+            className={`nav-btn ${activeTab === "return" ? "active" : ""}`}
+            onClick={() => setActiveTab("return")}
+          >
+            <span>🔄</span> Pengembalian Buku
           </button>
           <button
             className={`nav-btn ${activeTab === "history" ? "active" : ""}`}
@@ -87,7 +173,22 @@ export default function App() {
       {/* Main Content */}
       <main className="main-content">
         {/* Tab: Peminjaman Buku */}
-        {activeTab === "borrow" && <ELibraryUNKLAB />}
+
+        {activeTab === "borrow" && (
+          <ELibraryUNKLAB
+            onNavigateReturn={() => setActiveTab("return")}
+            onBorrowComplete={handleBorrowComplete}
+            currentUser={user}
+          />
+        )}
+
+        {/* Tab: Pengembalian Buku */}
+        {activeTab === "return" && (
+          <BookReturn
+            ticket={returnTicket}
+            onBackToBorrow={() => setActiveTab("borrow")}
+          />
+        )}
 
         {/* Tab: Riwayat Peminjaman */}
         {activeTab === "history" && (
@@ -105,6 +206,8 @@ export default function App() {
                       <th>ID</th>
                       <th>Nama Peminjam</th>
                       <th>Email</th>
+                      <th>Judul Buku</th>
+                      <th>Tanggal Pinjam</th>
                       <th>Catatan</th>
                     </tr>
                   </thead>
@@ -112,9 +215,11 @@ export default function App() {
                     {loanHistory.map((loan) => (
                       <tr key={loan.id}>
                         <td>#{loan.id}</td>
-                        <td>{loan.name?.substring(0, 20) || "Anonim"}</td>
-                        <td>{loan.email || "-"}</td>
-                        <td>{loan.body?.substring(0, 50) || "-"}...</td>
+                        <td>{loan.borrowerName || user.name || "Anonim"}</td>
+                        <td>{loan.userEmail}</td>
+                        <td>{loan.bookTitle}</td>
+                        <td>{loan.borrowDate}</td>
+                        <td>{loan.notes || "-"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -203,14 +308,14 @@ export default function App() {
           display: flex;
           flex-direction: column;
           min-height: 100vh;
-          background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf5 100%);
+          background: #f5f6fa;
         }
 
         .header {
-          background: linear-gradient(135deg, #004aad 0%, #0066cc 100%);
-          color: white;
-          padding: 2rem;
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+          background: #ffffff;
+          color: #1f2a37;
+          padding: 1.75rem 0;
+          border-bottom: 1px solid #e2e6ef;
         }
 
         .header-content {
@@ -222,6 +327,12 @@ export default function App() {
           gap: 2rem;
         }
 
+        .header-actions {
+          display: flex;
+          align-items: center;
+          gap: 1.5rem;
+        }
+
         .logo {
           display: flex;
           align-items: center;
@@ -229,46 +340,66 @@ export default function App() {
         }
 
         .logo-icon {
-          font-size: 2.5rem;
+          font-size: 2.2rem;
         }
 
         .logo h1 {
           margin: 0;
-          font-size: 1.8rem;
-          font-weight: bold;
+          font-size: 1.65rem;
+          font-weight: 600;
         }
 
         .logo p {
-          margin: 0.25rem 0 0 0;
-          opacity: 0.9;
-          font-size: 0.9rem;
+          margin: 0.2rem 0 0 0;
+          color: #5b6472;
+          font-size: 0.95rem;
         }
 
         .header-stats {
           display: flex;
-          gap: 2rem;
+          gap: 1.25rem;
+          align-items: center;
         }
 
         .stat-item {
           text-align: center;
           display: flex;
           flex-direction: column;
-          gap: 0.5rem;
+          gap: 0.35rem;
         }
 
         .stat-number {
-          font-size: 1.5rem;
-          font-weight: bold;
+          font-size: 1.35rem;
+          font-weight: 600;
         }
 
         .stat-label {
-          font-size: 0.9rem;
-          opacity: 0.9;
+          font-size: 0.85rem;
+          color: #808694;
+        }
+
+        .user-pill {
+          background: #f2f4f8;
+          padding: 0.75rem 1.25rem;
+          border-radius: 14px;
+          min-width: 200px;
+        }
+
+        .logout-btn {
+          border: none;
+          background: #1f2a37;
+          color: #fff;
+          padding: 0.65rem 1.6rem;
+          border-radius: 999px;
+        }
+
+        .logout-btn:hover {
+          background: #253246;
         }
 
         .navbar {
-          background: white;
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+          background: #ffffff;
+          border-bottom: 1px solid #e2e6ef;
           position: sticky;
           top: 0;
           z-index: 100;
@@ -283,86 +414,86 @@ export default function App() {
 
         .nav-btn {
           flex: 1;
-          padding: 1rem;
+          padding: 0.95rem;
           background: none;
           border: none;
-          border-bottom: 3px solid transparent;
-          color: #666;
+          border-bottom: 2px solid transparent;
+          color: #5b6472;
           font-size: 1rem;
           font-weight: 600;
           cursor: pointer;
-          transition: all 0.3s ease;
+          transition: all 0.2s ease;
           display: flex;
           align-items: center;
           justify-content: center;
-          gap: 0.5rem;
+          gap: 0.45rem;
         }
 
         .nav-btn:hover {
-          background: #f5f7fa;
-          color: #004aad;
+          background: #f3f5f9;
+          color: #1f2a37;
         }
 
         .nav-btn.active {
-          color: #004aad;
-          border-bottom-color: #004aad;
-          background: #f0f6ff;
+          color: #1f2a37;
+          border-bottom-color: #1f2a37;
+          background: #eef2f7;
         }
 
         .main-content {
           flex: 1;
-          padding: 2rem;
+          padding: 2.5rem 1.5rem;
           max-width: 1200px;
           margin: 0 auto;
           width: 100%;
         }
 
         .section-title {
-          font-size: 2rem;
-          font-weight: bold;
-          color: #004aad;
+          font-size: 1.75rem;
+          font-weight: 600;
+          color: #1f2a37;
           margin-bottom: 1.5rem;
           text-align: center;
         }
 
         .about-content {
-          line-height: 1.8;
+          line-height: 1.75;
+          color: #4f5563;
         }
 
         .about-content h3 {
-          font-size: 1.5rem;
-          color: #004aad;
-          margin-bottom: 1rem;
+          font-size: 1.4rem;
+          color: #1f2a37;
+          margin-bottom: 0.85rem;
         }
 
         .about-content h4 {
-          font-size: 1.1rem;
-          color: #0066cc;
-          margin-top: 1.5rem;
-          margin-bottom: 0.5rem;
+          font-size: 1rem;
+          color: #4a6c8d;
+          margin-top: 1.4rem;
+          margin-bottom: 0.4rem;
         }
 
         .about-content p {
           margin-bottom: 1rem;
-          color: #666;
         }
 
         .about-content ul {
-          margin-left: 1.5rem;
+          margin-left: 1.25rem;
           margin-bottom: 1rem;
-          color: #666;
         }
 
         .about-content li {
-          margin-bottom: 0.5rem;
+          margin-bottom: 0.4rem;
         }
 
         .footer {
-          background: #1a1a1a;
-          color: white;
-          padding: 2rem;
+          background: #f8f9fb;
+          color: #5b6472;
+          padding: 2rem 0;
           margin-top: 2rem;
           text-align: center;
+          border-top: 1px solid #e2e6ef;
         }
 
         .footer-content {
@@ -371,20 +502,20 @@ export default function App() {
         }
 
         .footer-content p {
-          margin: 0.5rem 0;
+          margin: 0.4rem 0;
         }
 
         .footer-links {
           margin-top: 1rem;
           display: flex;
           justify-content: center;
-          gap: 2rem;
+          gap: 1.5rem;
         }
 
         .footer-links a {
-          color: #ffc107;
+          color: #1f2a37;
           text-decoration: none;
-          transition: all 0.3s ease;
+          font-weight: 500;
         }
 
         .footer-links a:hover {
@@ -394,12 +525,24 @@ export default function App() {
         @media (max-width: 768px) {
           .header-content {
             flex-direction: column;
-            gap: 1rem;
+            gap: 1.25rem;
+            padding: 0 1.25rem;
+          }
+
+          .header-actions {
+            flex-direction: column;
+            width: 100%;
           }
 
           .header-stats {
             width: 100%;
             justify-content: space-around;
+            flex-wrap: wrap;
+            gap: 1rem;
+          }
+
+          .logout-btn {
+            width: 100%;
           }
 
           .nav-container {
@@ -407,22 +550,20 @@ export default function App() {
           }
 
           .nav-btn {
-            border-bottom: none;
-            border-right: 3px solid transparent;
+            border-bottom: 1px solid #e2e6ef;
           }
 
           .nav-btn.active {
-            border-bottom: none;
-            border-right-color: #004aad;
+            border-bottom-color: #1f2a37;
           }
 
           .main-content {
-            padding: 1rem;
+            padding: 1.5rem 1.25rem;
           }
 
           .footer-links {
             flex-direction: column;
-            gap: 0.5rem;
+            gap: 0.75rem;
           }
         }
       `}</style>

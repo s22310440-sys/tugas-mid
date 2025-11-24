@@ -1,16 +1,19 @@
 import React, { useState, useEffect } from "react";
 import { getBooks, submitLoan, API_KEY } from "../api/config";
 
-export default function ELibraryUNKLAB() {
+export default function ELibraryUNKLAB({
+  onNavigateReturn = () => {},
+  onBorrowComplete = () => {},
+  currentUser = null,
+}) {
   const [books, setBooks] = useState([]);
   const [selectedBook, setSelectedBook] = useState(null);
+  const [borrowerName, setBorrowerName] = useState("");
   const [borrowDate, setBorrowDate] = useState("");
   const [returnDate, setReturnDate] = useState("");
-  const [fine, setFine] = useState(0);
+  const [notes, setNotes] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
-
-  const dailyFine = 7500;
 
   // Load books dari API saat component mount
   useEffect(() => {
@@ -28,31 +31,22 @@ export default function ELibraryUNKLAB() {
     loadBooks();
   }, []);
 
-  const calculateFine = () => {
-    if (!borrowDate || !returnDate) return;
-
-    const start = new Date(borrowDate);
-    const end = new Date(returnDate);
-    const diffTime = end - start;
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-    if (diffDays > 7) {
-      const lateDays = diffDays - 7;
-      setFine(lateDays * dailyFine);
-    } else {
-      setFine(0);
-    }
-  };
-
   useEffect(() => {
-    calculateFine();
-  }, [borrowDate, returnDate]);
+    if (currentUser?.name) {
+      setBorrowerName((prev) => prev || currentUser.name);
+    }
+  }, [currentUser]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
     if (!selectedBook) {
       setMessage("Silakan pilih buku terlebih dahulu.");
+      return;
+    }
+
+    if (!borrowerName.trim()) {
+      setMessage("Nama peminjam wajib diisi.");
       return;
     }
 
@@ -67,29 +61,43 @@ export default function ELibraryUNKLAB() {
     const loanData = {
       bookId: selectedBook.id,
       bookTitle: selectedBook.title,
+      borrowerName,
       borrowDate,
       returnDate,
-      fine,
+      notes,
       timestamp: new Date().toISOString(),
     };
 
     const result = await submitLoan(loanData);
 
     if (result.success) {
-      setMessage(
-        `✓ Peminjaman berhasil! Buku: ${selectedBook.title}. Denda keterlambatan: Rp ${fine}. Data disimpan di server.`
-      );
+      setMessage(`✓ Peminjaman berhasil! Buku: ${selectedBook.title}.`);
+      onBorrowComplete({
+        borrowerName,
+        bookTitle: selectedBook.title,
+        borrowDate,
+        plannedReturnDate: returnDate,
+        notes,
+      });
       // Reset form
       setTimeout(() => {
         setSelectedBook(null);
+        setBorrowerName("");
         setBorrowDate("");
         setReturnDate("");
-        setFine(0);
+        setNotes("");
       }, 2000);
     } else {
       setMessage(
-        `✓ Peminjaman tercatat lokal! Buku: ${selectedBook.title}. Denda: Rp ${fine}. (Server sedang offline)`
+        `✓ Peminjaman tercatat lokal! Buku: ${selectedBook.title}. (Server sedang offline)`
       );
+      onBorrowComplete({
+        borrowerName,
+        bookTitle: selectedBook.title,
+        borrowDate,
+        plannedReturnDate: returnDate,
+        notes,
+      });
     }
 
     setLoading(false);
@@ -126,6 +134,17 @@ export default function ELibraryUNKLAB() {
 
         <form onSubmit={handleSubmit}>
           <div className="form-group">
+            <label>Nama Peminjam</label>
+            <input
+              type="text"
+              value={borrowerName}
+              onChange={(e) => setBorrowerName(e.target.value)}
+              placeholder="Masukkan nama lengkap"
+              required
+            />
+          </div>
+
+          <div className="form-group">
             <label>Tanggal Peminjaman</label>
             <input
               type="date"
@@ -145,11 +164,14 @@ export default function ELibraryUNKLAB() {
             />
           </div>
 
-          <div className="fine-box">
-            <strong>💰 Estimasi Denda:</strong> Rp {fine.toLocaleString("id-ID")}
-            {fine > 0 && <p style={{ fontSize: "0.9rem", marginTop: "0.5rem" }}>
-              *Denda berlaku jika melebihi 7 hari peminjaman
-            </p>}
+          <div className="form-group">
+            <label>Catatan</label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Opsional: catatan untuk petugas perpustakaan"
+              rows={3}
+            />
           </div>
 
           <button type="submit" className="submit-btn" disabled={loading}>
@@ -162,6 +184,22 @@ export default function ELibraryUNKLAB() {
             {message}
           </div>
         )}
+
+        <div className="return-cta">
+          <div>
+            <strong>Sudah selesai membaca?</strong>
+            <p className="mt-1">
+              Hitung estimasi denda dan konfirmasi pengembalian di halaman khusus.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={onNavigateReturn}
+          >
+            Buka Pengembalian Buku
+          </button>
+        </div>
 
         <div className="card-footer">
           <small style={{ color: "#666" }}>
