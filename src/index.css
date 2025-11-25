@@ -50,7 +50,8 @@ body {
   align-items: center;
   justify-content: center;
   padding: 2rem;
-  background: linear-gradient(135deg, #e3ebf7 0%, #f7f8fc 100%);
+  background: url("https://images.pexels.com/photos/1370295/pexels-photo-1370295.jpeg")
+    center/cover no-repeat fixed;
 }
 
 .login-card {
