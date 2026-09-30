@@ -1,12 +1,28 @@
 import React, { useState, useEffect } from "react";
-import { getBooks, submitLoan, API_KEY } from "../api/config";
+import { submitLoan, API_KEY } from "../api/config";
+
+const BOOK_STOCK_STORAGE_KEY = "elib-book-stock";
+const DEFAULT_BOOKS = [
+  { id: 1, title: "Buku Skripsi", stock: 10 },
+  { id: 2, title: "Buku Agama", stock: 10 },
+  { id: 3, title: "Buku Kamus", stock: 10 },
+];
 
 export default function ELibraryUNKLAB({
   onNavigateReturn = () => {},
   onBorrowComplete = () => {},
   currentUser = null,
 }) {
-  const [books, setBooks] = useState([]);
+  const [books, setBooks] = useState(() => {
+    try {
+      const savedBooks = JSON.parse(
+        localStorage.getItem(BOOK_STOCK_STORAGE_KEY) || "null"
+      );
+      return Array.isArray(savedBooks) ? savedBooks : DEFAULT_BOOKS;
+    } catch {
+      return DEFAULT_BOOKS;
+    }
+  });
   const [selectedBook, setSelectedBook] = useState(null);
   const [borrowerName, setBorrowerName] = useState("");
   const [borrowDate, setBorrowDate] = useState("");
@@ -14,22 +30,6 @@ export default function ELibraryUNKLAB({
   const [notes, setNotes] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
-
-  // Load books dari API saat component mount
-  useEffect(() => {
-    const loadBooks = async () => {
-      setLoading(true);
-      // Set buku statis dengan nama yang diinginkan
-      setBooks([
-        { id: 1, title: "Buku Skripsi", stock: 10 },
-        { id: 2, title: "Buku Agama", stock: 10 },
-        { id: 3, title: "Buku Kamus", stock: 10 },
-      ]);
-      setLoading(false);
-    };
-
-    loadBooks();
-  }, []);
 
   useEffect(() => {
     if (currentUser?.name) {
@@ -52,6 +52,16 @@ export default function ELibraryUNKLAB({
 
     if (!borrowDate || !returnDate) {
       setMessage("Silakan isi tanggal peminjaman dan pengembalian.");
+      return;
+    }
+
+    if (returnDate < borrowDate) {
+      setMessage("Tanggal pengembalian tidak boleh sebelum tanggal peminjaman.");
+      return;
+    }
+
+    if (selectedBook.stock <= 0) {
+      setMessage("Stok buku ini sedang habis.");
       return;
     }
 
@@ -100,6 +110,12 @@ export default function ELibraryUNKLAB({
       });
     }
 
+    const updatedBooks = books.map((book) =>
+      book.id === selectedBook.id ? { ...book, stock: book.stock - 1 } : book
+    );
+    setBooks(updatedBooks);
+    localStorage.setItem(BOOK_STOCK_STORAGE_KEY, JSON.stringify(updatedBooks));
+
     setLoading(false);
   };
 
@@ -122,7 +138,7 @@ export default function ELibraryUNKLAB({
                   selectedBook?.id === book.id ? "active" : ""
                 }`}
                 onClick={() => setSelectedBook(book)}
-                disabled={loading}
+                disabled={loading || book.stock <= 0}
               >
                 {book.title}
                 <br />
@@ -159,6 +175,7 @@ export default function ELibraryUNKLAB({
             <input
               type="date"
               value={returnDate}
+              min={borrowDate || undefined}
               onChange={(e) => setReturnDate(e.target.value)}
               required
             />
